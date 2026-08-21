@@ -35,7 +35,7 @@ func (s *Server) createUpstream(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg.Upstreams = append(cfg.Upstreams, body)
 	if err := s.persist(cfg); err != nil {
-		writeErr(w, 400, 40001, err.Error())
+		writeErr(w, 500, 50002, "upstream not applied: "+err.Error())
 		return
 	}
 	writeJSON(w, 201, 0, "ok", body)
@@ -63,7 +63,7 @@ func (s *Server) updateUpstream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.persist(cfg); err != nil {
-		writeErr(w, 400, 40001, err.Error())
+		writeErr(w, 500, 50002, "upstream not applied: "+err.Error())
 		return
 	}
 	writeOK(w, body)
@@ -93,7 +93,7 @@ func (s *Server) deleteUpstream(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg.Upstreams = out
 	if err := s.persist(cfg); err != nil {
-		writeErr(w, 400, 40001, err.Error())
+		writeErr(w, 500, 50002, "upstream not applied: "+err.Error())
 		return
 	}
 	writeOK(w, nil)

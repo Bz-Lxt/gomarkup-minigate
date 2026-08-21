@@ -41,7 +41,7 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg.Routes = append(cfg.Routes, body)
 	if err := s.persist(cfg); err != nil {
-		writeErr(w, 400, 40001, err.Error())
+		writeErr(w, 500, 50002, "route not applied: "+err.Error())
 		return
 	}
 	writeJSON(w, 201, 0, "ok", body)
@@ -73,7 +73,7 @@ func (s *Server) updateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.persist(cfg); err != nil {
-		writeErr(w, 400, 40001, err.Error())
+		writeErr(w, 500, 50002, "route not applied: "+err.Error())
 		return
 	}
 	writeOK(w, body)
@@ -87,7 +87,7 @@ func (s *Server) toggleRoute(w http.ResponseWriter, r *http.Request) {
 			cfg.Routes[i].Enabled = !rt.Enabled
 			cfg.Routes[i].UpdatedAt = timeutil.Format(timeutil.Now())
 			if err := s.persist(cfg); err != nil {
-				writeErr(w, 400, 40001, err.Error())
+				writeErr(w, 500, 50002, "route not applied: "+err.Error())
 				return
 			}
 			writeOK(w, cfg.Routes[i])
@@ -115,7 +115,7 @@ func (s *Server) deleteRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg.Routes = out
 	if err := s.persist(cfg); err != nil {
-		writeErr(w, 400, 40001, err.Error())
+		writeErr(w, 500, 50002, "route not applied: "+err.Error())
 		return
 	}
 	writeJSON(w, 200, 0, "ok", nil)
