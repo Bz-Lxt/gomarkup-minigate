@@ -16,12 +16,13 @@ import (
 type ApplyFunc func(*model.GatewayConfig) error
 
 type Reloader struct {
-	src    Source
-	apply  ApplyFunc
-	mu     sync.RWMutex
-	hash   string
-	okAt   time.Time
-	errMsg string
+	src     Source
+	apply   ApplyFunc
+	mu      sync.RWMutex // protects hash, okAt, errMsg
+	applyMu sync.Mutex   // serializes apply calls without blocking Status
+	hash    string
+	okAt    time.Time
+	errMsg  string
 }
 
 func NewReloader(src Source, apply ApplyFunc) *Reloader {
@@ -61,17 +62,39 @@ func (r *Reloader) SaveAndApply(cfg *model.GatewayConfig) error {
 
 func (r *Reloader) commit(cfg *model.GatewayConfig) error {
 	h := Hash(cfg)
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// Fast path: same hash, skip apply entirely. Only a brief read lock
+	// on the metadata mutex so concurrent Status() calls are never blocked.
+	r.mu.RLock()
 	if h == r.hash {
+		r.mu.RUnlock()
 		return nil
 	}
+	r.mu.RUnlock()
+
+	// Serialize apply calls without holding the metadata mutex, so that
+	// Status() (which only needs a read lock on mu) stays responsive while
+	// an expensive apply is in progress.
+	r.applyMu.Lock()
+	defer r.applyMu.Unlock()
+
+	// Re-check hash after acquiring applyMu: another goroutine may have
+	// applied the same config while we were waiting.
+	r.mu.Lock()
+	if h == r.hash {
+		r.mu.Unlock()
+		return nil
+	}
+	r.mu.Unlock()
+
 	if err := r.apply(cfg); err != nil {
+		r.setErr(err.Error())
 		return err
 	}
+	r.mu.Lock()
 	r.hash = h
 	r.okAt = timeutil.Now()
 	r.errMsg = ""
+	r.mu.Unlock()
 	logger.L().Info("config applied", slog.String("source", r.src.Name()), slog.String("hash", h[:12]))
 	return nil
 }
