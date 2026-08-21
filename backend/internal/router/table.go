@@ -70,14 +70,19 @@ func (t *Table) Match(method, path, host string) (*model.RouteSpec, map[string]s
 	return s.root.match(strings.ToUpper(method), path, host)
 }
 
+// Routes returns a deep copy of the current route list. Callers can sort,
+// reorder, or normalize fields without mutating the live snapshot.
 func (t *Table) Routes() []model.RouteSpec {
 	s := t.cur.Load()
 	if s == nil {
 		return nil
 	}
-	return s.routes
+	return cloneRouteSpecs(s.routes)
 }
 
+// Upstreams returns a deep copy of the current upstream list. Callers can
+// safely sort or modify the returned slice and its element fields (including
+// the Nodes sub-slice) without mutating the live snapshot.
 func (t *Table) Upstreams() []model.UpstreamSpec {
 	s := t.cur.Load()
 	if s == nil {
@@ -85,7 +90,7 @@ func (t *Table) Upstreams() []model.UpstreamSpec {
 	}
 	out := make([]model.UpstreamSpec, 0, len(s.upstreams))
 	for _, u := range s.upstreams {
-		out = append(out, u)
+		out = append(out, cloneUpstreamSpec(u))
 	}
 	return out
 }
@@ -96,17 +101,19 @@ func (t *Table) Upstream(id string) (model.UpstreamSpec, bool) {
 		return model.UpstreamSpec{}, false
 	}
 	u, ok := s.upstreams[id]
-	return u, ok
+	if !ok {
+		return model.UpstreamSpec{}, false
+	}
+	return cloneUpstreamSpec(u), true
 }
 
+// Globals returns a deep copy of the current global middleware list.
 func (t *Table) Globals() []model.MiddlewareSpec {
 	s := t.cur.Load()
 	if s == nil {
 		return nil
 	}
-	out := make([]model.MiddlewareSpec, len(s.globals))
-	copy(out, s.globals)
-	return out
+	return cloneMiddlewareSpecs(s.globals)
 }
 
 func (t *Table) Config() model.GatewayConfig {
@@ -114,16 +121,12 @@ func (t *Table) Config() model.GatewayConfig {
 	if s == nil {
 		return model.GatewayConfig{}
 	}
-	ups := make([]model.UpstreamSpec, 0, len(s.upstreams))
-	for _, u := range s.upstreams {
-		ups = append(ups, u)
-	}
 	return model.GatewayConfig{
 		Listen:            s.listen,
 		AdminListen:       s.admin,
 		LogLevel:          s.logLevel,
 		GlobalMiddlewares: t.Globals(),
-		Upstreams:         ups,
+		Upstreams:         t.Upstreams(),
 		Routes:            t.Routes(),
 	}
 }
@@ -147,4 +150,81 @@ func normalizePath(p string) string {
 		p = "/" + p
 	}
 	return p
+}
+
+// cloneRouteSpecs returns a deep copy of the given route slice so callers can
+// sort, reorder, or normalize fields (including the Methods sub-slice) without
+// mutating the live snapshot's data.
+func cloneRouteSpecs(src []model.RouteSpec) []model.RouteSpec {
+	if src == nil {
+		return nil
+	}
+	out := make([]model.RouteSpec, len(src))
+	for i, r := range src {
+		out[i] = r
+		if r.Methods != nil {
+			out[i].Methods = append([]string(nil), r.Methods...)
+		}
+		if r.Middlewares != nil {
+			out[i].Middlewares = append([]string(nil), r.Middlewares...)
+		}
+	}
+	return out
+}
+
+// cloneUpstreamSpec returns a deep copy of the given upstream spec so callers
+// can safely mutate the Nodes sub-slice and Config map without affecting the
+// live snapshot.
+func cloneUpstreamSpec(u model.UpstreamSpec) model.UpstreamSpec {
+	out := u
+	if u.Nodes != nil {
+		out.Nodes = append([]model.NodeSpec(nil), u.Nodes...)
+	}
+	return out
+}
+
+// cloneMiddlewareSpecs returns a deep copy of the given middleware slice so
+// callers can safely mutate the Config map of each element without affecting
+// the live snapshot.
+func cloneMiddlewareSpecs(src []model.MiddlewareSpec) []model.MiddlewareSpec {
+	if src == nil {
+		return nil
+	}
+	out := make([]model.MiddlewareSpec, len(src))
+	for i, m := range src {
+		out[i] = m
+		if m.Config != nil {
+			out[i].Config = cloneStringAnyMap(m.Config)
+		}
+	}
+	return out
+}
+
+// cloneStringAnyMap returns a deep copy of a map[string]any. It copies nested
+// maps and slices recursively so mutation of the copy cannot reach the
+// original. Non-map/slice values are copied by value as normal.
+func cloneStringAnyMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]any, len(src))
+	for k, v := range src {
+		dst[k] = cloneAny(v)
+	}
+	return dst
+}
+
+func cloneAny(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		return cloneStringAnyMap(val)
+	case []any:
+		out := make([]any, len(val))
+		for i, e := range val {
+			out[i] = cloneAny(e)
+		}
+		return out
+	default:
+		return v
+	}
 }
