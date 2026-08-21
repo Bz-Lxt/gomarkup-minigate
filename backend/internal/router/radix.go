@@ -224,6 +224,22 @@ func (n *node) walk(method, path, host string, params map[string]string) *model.
 		return best
 	default:
 		if !strings.HasPrefix(path, n.prefix) {
+			// Allow the bare prefix of a catch-all pattern to match even
+			// when the request omits the trailing slash. E.g. "/echo"
+			// should still hit a "/echo/*" route so that strip_prefix and
+			// the rewrite logic run for the root address.
+			if strings.HasSuffix(n.prefix, "/") && path+"/" == n.prefix && len(n.children) > 0 {
+				for _, c := range n.children {
+					if c.nType == ntCatchAll {
+						if c.leaf != nil {
+							if r := pickLeaf(c.leaf, method, host); r != nil {
+								params["*"] = ""
+								return r
+							}
+						}
+					}
+				}
+			}
 			return nil
 		}
 		rest := path[len(n.prefix):]

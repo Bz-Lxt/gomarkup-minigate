@@ -31,10 +31,15 @@ func (p *RewritePlugin) Handle(next http.Handler, cfg map[string]any) http.Handl
 		if set != "" {
 			path = set
 		} else {
-			if strip != "" {
-				path = strings.TrimPrefix(path, strip)
-				if path == "" {
-					path = "/"
+			if strip != "" && strings.HasPrefix(path, strip) {
+				rest := path[len(strip):]
+				// Only strip at a segment boundary so that e.g. "/apix" is
+				// not mistaken for a child of the "/api" prefix.
+				if rest == "" || strings.HasPrefix(rest, "/") {
+					path = rest
+					if path == "" {
+						path = "/"
+					}
 				}
 			}
 			if add != "" {

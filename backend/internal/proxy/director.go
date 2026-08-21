@@ -9,10 +9,15 @@ import (
 )
 
 func rewritePath(path, stripPrefix, targetPath string) string {
-	if stripPrefix != "" && path != stripPrefix {
-		path = strings.TrimPrefix(path, stripPrefix)
-		if path == "" {
-			path = "/"
+	if stripPrefix != "" && strings.HasPrefix(path, stripPrefix) {
+		rest := path[len(stripPrefix):]
+		// Only strip at a segment boundary so that "/echoextra" is not
+		// mistaken for a child of the "/echo" prefix.
+		if rest == "" || strings.HasPrefix(rest, "/") {
+			path = rest
+			if path == "" {
+				path = "/"
+			}
 		}
 	}
 	base := strings.TrimRight(targetPath, "/")
