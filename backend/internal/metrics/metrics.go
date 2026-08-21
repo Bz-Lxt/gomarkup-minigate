@@ -28,10 +28,10 @@ func (c *Collector) tick() {
 	t := time.NewTicker(time.Second)
 	for range t.C {
 		c.mu.Lock()
-		defer c.mu.Unlock()
 		c.slot = (c.slot + 1) % 60
 		c.bucket[c.slot] = 0
-		c.last = time.Now()
+		c.last = timeutil.Now()
+		c.mu.Unlock()
 	}
 }
 
