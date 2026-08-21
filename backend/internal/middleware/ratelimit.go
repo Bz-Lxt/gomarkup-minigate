@@ -132,17 +132,15 @@ func newLimiterStore(algo string, rate, burst float64) *limiterStore {
 func (s *limiterStore) Allow(key string) bool {
 	s.mu.Lock()
 	l, ok := s.items[key]
-	s.mu.Unlock()
 	if !ok {
 		if s.algo == "leaky_bucket" {
 			l = &leakyBucket{rate: s.rate, capacity: s.burst}
 		} else {
 			l = &tokenBucket{rate: s.rate, burst: s.burst, tokens: s.burst}
 		}
-		s.mu.Lock()
 		s.items[key] = l
-		s.mu.Unlock()
 	}
+	s.mu.Unlock()
 	return l.Allow()
 }
 
