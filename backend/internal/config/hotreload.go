@@ -22,6 +22,7 @@ type Reloader struct {
 	hash   string
 	okAt   time.Time
 	errMsg string
+	lastOK *model.GatewayConfig
 }
 
 func NewReloader(src Source, apply ApplyFunc) *Reloader {
@@ -51,18 +52,25 @@ func (r *Reloader) LoadAndApply() (*model.GatewayConfig, error) {
 	return cfg, nil
 }
 
+// SaveAndApply persists cfg to the source and applies it to the runtime.
+// If Save succeeds but apply fails, the file is restored to the last known
+// good configuration so that the on-disk state and the running state stay
+// consistent, and the error is returned so callers can retry.
 func (r *Reloader) SaveAndApply(cfg *model.GatewayConfig) error {
-	err := r.src.Save(cfg)
-	if err != nil {
+	if err := r.src.Save(cfg); err != nil {
 		r.setErr(err.Error())
 		return err
 	}
 	if err := r.commit(cfg); err != nil {
+		r.restoreLastOK()
 		r.setErr(err.Error())
+		return err
 	}
-	return err
+	return nil
 }
 
+// commit applies cfg to the runtime and records it as the last known good
+// configuration. If the cfg hash is unchanged, commit is a no-op.
 func (r *Reloader) commit(cfg *model.GatewayConfig) error {
 	h := Hash(cfg)
 	r.mu.Lock()
@@ -78,9 +86,26 @@ func (r *Reloader) commit(cfg *model.GatewayConfig) error {
 	r.hash = h
 	r.okAt = timeutil.Now()
 	r.errMsg = ""
+	r.lastOK = Clone(cfg)
 	r.mu.Unlock()
 	logger.L().Info("config applied", slog.String("source", r.src.Name()), slog.String("hash", h[:12]))
 	return nil
+}
+
+// restoreLastOK rewrites the source with the last successfully applied
+// configuration. It is best-effort: when there is no prior good snapshot it
+// leaves the file untouched and logs the situation.
+func (r *Reloader) restoreLastOK() {
+	r.mu.RLock()
+	prev := r.lastOK
+	r.mu.RUnlock()
+	if prev == nil {
+		logger.L().Warn("config rollback skipped: no prior good snapshot")
+		return
+	}
+	if err := r.src.Save(prev); err != nil {
+		logger.L().Error("config rollback failed", slog.String("err", err.Error()))
+	}
 }
 
 func (r *Reloader) setErr(msg string) {

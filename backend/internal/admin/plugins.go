@@ -82,7 +82,7 @@ func (s *Server) updateMW(w http.ResponseWriter, r *http.Request) {
 		cfg.GlobalMiddlewares = append(cfg.GlobalMiddlewares, body)
 	}
 	if err := s.persist(cfg); err != nil {
-		writeErr(w, 400, 40001, err.Error())
+		writeErr(w, 500, 50002, "middleware not applied: "+err.Error())
 		return
 	}
 	writeOK(w, body)
