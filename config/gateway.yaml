@@ -1,0 +1,94 @@
+listen: :8080
+admin_listen: :8081
+log_level: info
+global_middlewares:
+    - name: logger
+      enabled: true
+      config: {}
+    - name: ratelimit
+      enabled: false
+      config:
+        algorithm: token_bucket
+        burst: 8
+        dimension: ip
+        rate: 8
+    - name: jwt
+      enabled: false
+      config:
+        header: Authorization
+        secret: minigate-dev-secret
+        skip_paths:
+            - /health
+upstreams:
+    - id: echo-weighted
+      name: Echo Weighted
+      algorithm: weighted_rr
+      timeout_ms: 5000
+      fail_threshold: 3
+      nodes:
+        - target: http://upstream-a:9001
+          weight: 1
+        - target: http://upstream-b:9002
+          weight: 3
+    - id: echo-rr
+      name: Echo RoundRobin
+      algorithm: round_robin
+      timeout_ms: 5000
+      fail_threshold: 3
+      nodes:
+        - target: http://upstream-a:9001
+          weight: 1
+        - target: http://upstream-b:9002
+          weight: 1
+routes:
+    - id: echo-route
+      name: Echo Proxy
+      path: /echo/*
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+      host: ""
+      upstream_id: echo-rr
+      middlewares: []
+      enabled: true
+      priority: 10
+      strip_prefix: /echo
+    - id: weighted-route
+      name: Weighted Proxy
+      path: /weighted/*
+      methods:
+        - GET
+        - POST
+      host: ""
+      upstream_id: echo-weighted
+      middlewares: []
+      enabled: true
+      priority: 10
+      strip_prefix: /weighted
+    - id: secure-route
+      name: JWT Protected
+      path: /secure/*
+      methods:
+        - GET
+        - POST
+      host: ""
+      upstream_id: echo-rr
+      middlewares:
+        - jwt
+      enabled: true
+      priority: 20
+      strip_prefix: /secure
+    - id: limited-route
+      name: Rate Limited
+      path: /limited/*
+      methods:
+        - GET
+      host: ""
+      upstream_id: echo-rr
+      middlewares:
+        - ratelimit
+      enabled: true
+      priority: 20
+      strip_prefix: /limited
