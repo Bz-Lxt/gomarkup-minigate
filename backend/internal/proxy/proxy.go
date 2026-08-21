@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -87,6 +88,10 @@ func (e *Engine) forward(w http.ResponseWriter, r *http.Request, route *model.Ro
 	}
 	var lastErr error
 	for i := 0; i < try; i++ {
+		if ctxErr := r.Context().Err(); ctxErr != nil {
+			// caller already went away; stop retrying and skip error write
+			return
+		}
 		node := lb.Next()
 		if node == nil {
 			e.Metric.Error("no healthy node for " + spec.ID)
@@ -101,7 +106,12 @@ func (e *Engine) forward(w http.ResponseWriter, r *http.Request, route *model.Ro
 			continue
 		}
 		last := i == try-1
-		ok := e.doProxy(w, r, target, route, params, timeout, node, spec.FailThreshold, last)
+		ok, clientGone := e.doProxy(w, r, target, route, params, timeout, node, spec.FailThreshold, last)
+		if clientGone {
+			// client disconnected mid-flight; upstream not at fault.
+			// Skip retries, circuit reporting, and writing the error envelope.
+			return
+		}
 		if ok {
 			e.reportCircuit(spec, true)
 			return
@@ -136,7 +146,7 @@ func (b *bufferWriter) Write(p []byte) (int, error) {
 }
 func (b *bufferWriter) WriteHeader(code int) { b.code = code }
 
-func (e *Engine) doProxy(w http.ResponseWriter, r *http.Request, target *url.URL, route *model.RouteSpec, params map[string]string, timeout time.Duration, node *balancer.Node, threshold int, last bool) bool {
+func (e *Engine) doProxy(w http.ResponseWriter, r *http.Request, target *url.URL, route *model.RouteSpec, params map[string]string, timeout time.Duration, node *balancer.Node, threshold int, last bool) (ok bool, clientGone bool) {
 	rp := httputil.NewSingleHostReverseProxy(target)
 	rp.Transport = &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
@@ -147,6 +157,11 @@ func (e *Engine) doProxy(w http.ResponseWriter, r *http.Request, target *url.URL
 	}
 	failed := false
 	rp.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, err error) {
+		if errors.Is(err, context.Canceled) {
+			// client gave up; upstream isn't at fault — don't penalize node
+			clientGone = true
+			return
+		}
 		failed = true
 		node.Report(false, threshold)
 		e.Metric.Error(fmt.Sprintf("%s -> %s: %v", route.ID, node.Target, err))
@@ -167,7 +182,9 @@ func (e *Engine) doProxy(w http.ResponseWriter, r *http.Request, target *url.URL
 		}
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), timeout)
+	// Propagate caller cancellation to upstream so a dropped client
+	// doesn't hold the upstream connection until the gateway timeout.
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	req := r.WithContext(ctx)
 	req.Header.Set("X-Minigate-Upstream", node.Target)
@@ -175,12 +192,18 @@ func (e *Engine) doProxy(w http.ResponseWriter, r *http.Request, target *url.URL
 	defer node.Release()
 	if last {
 		rp.ServeHTTP(w, req)
-		return !failed
+		if clientGone {
+			return false, true
+		}
+		return !failed, false
 	}
 	buf := &bufferWriter{}
 	rp.ServeHTTP(buf, req)
+	if clientGone {
+		return false, true
+	}
 	if failed || buf.code >= 500 {
-		return false
+		return false, false
 	}
 	for k, vs := range buf.header {
 		for _, v := range vs {
@@ -192,5 +215,5 @@ func (e *Engine) doProxy(w http.ResponseWriter, r *http.Request, target *url.URL
 	}
 	w.WriteHeader(buf.code)
 	_, _ = w.Write(buf.body)
-	return true
+	return true, false
 }
