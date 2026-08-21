@@ -65,6 +65,12 @@ def test_echo_proxy_round_robin():
     assert seen == {"alpha", "bravo"}
 
 
+def test_query_params_preserved():
+    code, body = http("GET", GW + "/echo/ping?page=2&size=20&status=active")
+    assert code == 200
+    assert body["query"] == "page=2&size=20&status=active"
+
+
 def test_jwt_protect_and_demo_token():
     code, _ = http("GET", GW + "/secure/x")
     assert code == 401

@@ -27,7 +27,6 @@ func applyDirector(req *http.Request, target *url.URL, route *model.RouteSpec, p
 	req.URL.Host = target.Host
 	req.Host = target.Host
 	req.URL.Path = rewritePath(req.URL.Path, route.StripPrefix, target.Path)
-	req.URL.RawQuery = ""
 	req.Header.Set("X-Minigate-Route", route.ID)
 	if v, ok := params["id"]; ok {
 		req.Header.Set("X-Minigate-Param-Id", v)
