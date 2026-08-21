@@ -1,0 +1,77 @@
+services:
+  gateway:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: minigate-gateway
+    ports:
+      - "18480:8080"
+      - "18481:8081"
+    environment:
+      - TZ=Asia/Shanghai
+      - GATEWAY_CONFIG=/app/config/gateway.yaml
+      - LOG_LEVEL=info
+    volumes:
+      - ./config:/app/config
+    depends_on:
+      upstream-a:
+        condition: service_healthy
+      upstream-b:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/api/v1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 8s
+
+  frontend-admin:
+    build:
+      context: ./frontend-admin
+      dockerfile: Dockerfile
+    container_name: minigate-admin
+    ports:
+      - "18482:80"
+    environment:
+      - TZ=Asia/Shanghai
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
+
+  upstream-a:
+    build:
+      context: ./mock-upstream
+      dockerfile: Dockerfile
+    container_name: minigate-upstream-a
+    environment:
+      - TZ=Asia/Shanghai
+      - INSTANCE_NAME=alpha
+      - LISTEN=:9001
+    ports:
+      - "18483:9001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 8
+
+  upstream-b:
+    build:
+      context: ./mock-upstream
+      dockerfile: Dockerfile
+    container_name: minigate-upstream-b
+    environment:
+      - TZ=Asia/Shanghai
+      - INSTANCE_NAME=bravo
+      - LISTEN=:9002
+    ports:
+      - "18484:9002"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9002/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 8

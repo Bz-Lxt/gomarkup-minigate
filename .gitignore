@@ -1,0 +1,40 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/backend/minigate
+/backend/bin/
+/mock-upstream/upstream
+
+# Dependencies
+node_modules/
+frontend-admin/dist/
+vendor/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+.cursor/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Logs / coverage
+*.log
+coverage.out
+coverage.html
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Alkaid local marker (keep in repo for this project)
+# .alkaid-sop
