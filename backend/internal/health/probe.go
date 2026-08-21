@@ -34,19 +34,19 @@ func Probe(client *http.Client, target, path string, expected int) error {
 	if err != nil {
 		return fmt.Errorf("probe %s: %w", url, err)
 	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 	if expected != http.StatusOK {
 		if resp.StatusCode != expected {
 			return fmt.Errorf("probe %s status %d want %d", url, resp.StatusCode, expected)
 		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
 		return nil
 	}
 	if resp.StatusCode >= 500 {
 		return fmt.Errorf("probe %s status %d", url, resp.StatusCode)
 	}
-	_, _ = io.Copy(io.Discard, resp.Body)
-	_ = resp.Body.Close()
 	return nil
 }
 
