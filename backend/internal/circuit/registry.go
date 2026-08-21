@@ -37,12 +37,11 @@ func (r *Registry) Reset(upstreams []model.UpstreamSpec) {
 		if !u.Circuit.Enabled {
 			continue
 		}
-		if old, ok := r.items[u.ID]; ok {
+		if old, ok := r.items[u.ID]; ok && old != nil {
 			next[u.ID] = old
 			continue
 		}
-		var breaker *Breaker
-		next[u.ID] = breaker
+		next[u.ID] = New(Normalize(u.Circuit))
 	}
 	r.items = next
 }
